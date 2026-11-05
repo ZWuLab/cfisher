@@ -1,0 +1,175 @@
+---
+title: "Fisher's exact test controlling for confounders"
+author: "Zheyang Wu"
+date: "`r format(Sys.Date(), '%Y-%m-%d')`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Fisher's exact test controlling for confounders}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+library(cfisher)
+fmt_p <- function(p) format.pval(p, digits = 2, eps = 1e-4)
+```
+
+## The problem
+
+The classic Fisher's exact test tests whether a binary exposure and a binary outcome are
+associated by providing an exact p-value even when counts are small. However, it does not
+control for confounders. When extra variables influence both the exposure and the outcome,
+the false positive rate of the test is inflated by the spurious association caused by these
+confounders.
+
+The usual remedy is a logistic regression of the outcome on the exposure and the
+confounders. However, its p-values rest on large-sample approximations. They can be unreliable
+when the exposure is rare, when the number of cases is small, or when the data show
+(quasi-)separation, in which case the fitted coefficient of the exposure diverges.
+
+`cfisher.test()` keeps the exactness of Fisher's exact test and adds the control for
+confounders. The p-value and the interval are exact at the true slopes of the confounders
+and approximate at the fitted ones. For the odds ratio the slopes are refitted under each
+hypothesized odds ratio, a plug-in whose coverage was checked in a simulation reported in
+the accompanying paper (Wu and Contador, 2026, a draft).
+
+## What the test does
+
+Fit a logistic model of the outcome `y` on the confounders `z`, without the exposure
+`x`. Under the null hypothesis that the exposure does not matter given the confounders,
+this model gives every subject's probability of being a case. The test statistic is $T$,
+the number of cases among the exposed subjects. Its exact null distribution follows from
+those probabilities.
+
+* With `conditional = TRUE` (the default), the number of exposed subjects and the number
+  of cases are both held fixed, as in Fisher's exact test. The null distribution of $T$ is
+  then the conditional Bernoulli distribution, which reduces to the hypergeometric
+  distribution when all subjects have the same probability. Without confounders the
+  function returns the results of `fisher.test()`.
+* With `conditional = FALSE`, only the exposed subjects are held fixed, and the null
+  distribution is the Poisson-binomial distribution of $T$. Without confounders, the
+  unconditional test does not reduce to `fisher.test()`.
+
+The function also returns the odds ratio of the exposure given the confounders with a
+confidence interval. For each hypothesized odds ratio, the slopes of the confounders are
+refitted by maximum likelihood with the exposure term as an offset, the null distribution
+of $T$ is recomputed at the resulting probabilities, and the test is inverted. The refit is
+needed because the null model, fitted without the exposure, absorbs part of the exposure
+effect when the exposure is common. When `fit` is a vector of probabilities, the slopes
+cannot be refitted and the odds ratio uses the exponential tilt of the distribution at
+those probabilities, which is exact only when they are the baseline probabilities under the
+alternative.
+
+## An example with a confounder
+
+We simulate a confounder `z` that raises both the chance of exposure and the chance of
+being a case. The exposure itself has no effect on the outcome.
+
+```{r data}
+set.seed(2026)
+n <- 600
+z <- rnorm(n)
+x <- rbinom(n, 1, plogis(-1 + 1.2 * z))   # the confounder raises exposure
+y <- rbinom(n, 1, plogis(-0.5 + 1.0 * z)) # the confounder raises risk; x has no effect
+table(exposure = x, outcome = y)
+```
+
+Fisher's exact test ignores `z`.
+
+```{r fisher}
+ft <- fisher.test(table(x, y))
+ft
+```
+
+```{r cf}
+cf <- cfisher.test(x, y, z)
+cf
+```
+
+```{r numbers, include = FALSE}
+p_unadj <- ft$p.value
+p_adj <- cf$p.value
+verdict <- function(p) if (p < 0.05) "rejects" else "does not reject"
+```
+
+At the 5% level, the unadjusted test `r verdict(p_unadj)` the null hypothesis
+(p-value `r fmt_p(p_unadj)`, estimated odds ratio `r round(unname(ft$estimate), 2)`), and
+the test that controls for `z` `r verdict(p_adj)` it (p-value `r fmt_p(p_adj)`, estimated
+conditional odds ratio `r round(unname(cf$estimate), 2)`, 95% confidence interval from
+`r round(cf$conf.int[1], 2)` to `r round(cf$conf.int[2], 2)`). The exposure has no effect
+in this simulation, so a rejection by the unadjusted test is an association created by the
+confounder.
+
+## Reading the output
+
+The printed result is an `htest` object, so it prints like the output of `fisher.test()`.
+
+* `T` is the observed number of exposed cases, and `exposed`, `cases` and `n` give the
+  number of exposed subjects, of cases and of subjects.
+* The alternative `"two.sided"` is the default. `"greater"` tests whether the exposed are
+  enriched among the cases, and `"less"` whether they are depleted.
+* The estimate is the odds ratio of the exposure given the confounders. The confidence
+  interval inverts the two tails of the null distribution at half the error probability
+  each, with the slopes refitted at each hypothesized odds ratio. It is `0` or `Inf` at an
+  end when the observed count is at an end of the support.
+* `midp = TRUE` returns the mid-p value, which counts the observed count with half its
+  probability. The estimate and the interval do not change.
+* The components `null.distribution` and `expected` hold the null distribution of $T$
+  that the test used and its mean. The expected number of exposed cases here is
+  `r round(cf$expected, 1)`, against `r unname(cf$statistic)` observed.
+
+```{r nulldist}
+head(cf$null.distribution)
+```
+
+`cfisher.null()` returns the same distribution without running the test, for use in other
+software that takes a discrete null distribution.
+
+## Scanning many exposures against one outcome
+
+In a genome-wide scan, thousands of binary variants (exposures) are tested against one
+outcome. The null model does not contain the exposure, so it is the same for every
+variant. Fit it once and pass it with `fit`, which can be a binomial `glm` or a vector of
+probabilities.
+
+```{r scan}
+fit <- glm(y ~ z, family = binomial)
+variants <- sapply(c(0.02, 0.05, 0.10, 0.20), function(f) rbinom(n, 1, plogis(qlogis(f) + 0.8 * z)))
+colnames(variants) <- paste0("variant", 1:4)
+scan_p <- apply(variants, 2, function(v) cfisher.test(v, y, fit = fit, conf.int = FALSE)$p.value)
+signif(scan_p, 3)
+```
+
+Setting `conf.int = FALSE` skips the estimate and the interval (unlike `fisher.test()`,
+which still returns its estimate), which saves time when only p-values are needed. The cost
+of one test grows with the product of the number of subjects and the number of cases.
+
+## The unconditional option
+
+`conditional = FALSE` does not hold the number of cases fixed. Its null distribution is the
+Poisson-binomial distribution of the exposed subjects' null probabilities, which is the null
+of the BinomiRare test (Sofer, 2017) and of the conditional randomization test
+(Cand&egrave;s et al., 2018). The conditional option is the generalization of Fisher's exact
+test, and it is the default.
+
+```{r uncond}
+p_cond <- cfisher.test(x, y, fit = fit)$p.value
+p_unc <- cfisher.test(x, y, fit = fit, conditional = FALSE)$p.value
+```
+
+On the example above the two-sided p-value is `r fmt_p(p_cond)` with the conditional null and
+`r fmt_p(p_unc)` with the unconditional one.
+
+## References
+
+Cand&egrave;s, E., Fan, Y., Janson, L. and Lv, J. (2018). Panning for gold: 'model-X'
+knockoffs for high dimensional controlled variable selection. *Journal of the Royal
+Statistical Society Series B*, 80(3), 551-577. <https://doi.org/10.1111/rssb.12265>
+
+Sofer, T. (2017). BinomiRare: A robust test of the association of a rare variant with a
+disease for pooled analysis and meta-analysis, with application to the HCHS/SOL. *Genetic
+Epidemiology*, 41(5), 388-395. <https://doi.org/10.1002/gepi.22044>
+
+Wu, Z. and Contador, G. (2026). Fisher's exact test controlling for confounders. Draft
+manuscript.

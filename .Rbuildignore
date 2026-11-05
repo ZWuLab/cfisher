@@ -1,0 +1,13 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^LICENSE\.md$
+^cran-comments\.md$
+^AI-USE\.md$
+^cfisher_manual\.pdf$
+^benchmarks$
+^\.github$
+^_pkgdown\.yml$
+^docs$
+^\.release-exclude$
+^\.release-source$
+^vignettes/.*\.html$

@@ -1,0 +1,34 @@
+Package: cfisher
+Type: Package
+Title: Fisher's Exact Test Controlling for Confounders
+Version: 0.1.0
+Date: 2026-11-05
+Authors@R: c(
+    person("Zheyang", "Wu", email = "zheyangwu@wpi.edu", role = c("aut", "cre", "cph")),
+    person("Gonzalo", "Contador", email = "gonzalo.contador@usm.cl", role = "aut")
+    )
+Description: Tests the association between a binary exposure and a binary outcome while
+    controlling for confounders, in the manner of Fisher's exact test. A logistic model of
+    the outcome on the confounders, without the exposure, gives each subject's probability
+    of being a case under the null hypothesis. The test then uses the exact null
+    distribution of the number of exposed cases, either given the exposed subjects and the
+    number of cases (a generalization of the hypergeometric distribution of Fisher's exact
+    test) or given the exposed subjects only (a Poisson-binomial distribution). It returns
+    the p-value, an estimate of the odds ratio and its confidence interval. With
+    confounders the fitted model is plugged in, so the p-value and the interval are exact
+    at the true confounder effects. Without confounders the results agree with
+    'fisher.test()'. The null model can be fitted once and reused, which suits scans of
+    many exposures, such as genetic variants, against one outcome. The method is described
+    in a draft manuscript by Wu and Contador (2026), Fisher's exact test controlling for
+    confounders.
+URL: https://github.com/ZWuLab/cfisher
+BugReports: https://github.com/ZWuLab/cfisher/issues
+License: MIT + file LICENSE
+Encoding: UTF-8
+Depends: R (>= 4.1)
+Imports: Rcpp, stats
+LinkingTo: Rcpp
+Suggests: testthat (>= 3.0.0), knitr, rmarkdown, MCMCpack
+VignetteBuilder: knitr
+RoxygenNote: 7.3.3
+Config/testthat/edition: 3
